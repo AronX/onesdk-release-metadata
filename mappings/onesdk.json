@@ -1,23 +1,20 @@
 {
-  "$schema": "./schemas/mapping.schema.json",
-  "1.36.0": {
-    "release_date": "2026-04-01",
-    "channels": {
-      "bilibili": {
-        "version": "4.4.0",
-        "zip_url": "https://xc-1253504421.cos.ap-shanghai.myqcloud.com/test.framework.zip",
-        "size_bytes": 721705052
-      }
+    "$schema": "./schemas/mapping.schema.json",
+    "1.36.0":
+    {
+        "channels":
+        {
+            "bilibili":
+            [
+                {
+                    "md5": "cdbfac868e8473942fba640899f8e78c",
+                    "version": "4.4.0",
+                    "zip_url": "https://xc-1253504421.cos.ap-shanghai.myqcloud.com/bilibili/bilibili_V4.4.0_20260408152235.zip",
+                    "release_date": "2026-04-08"
+
+                }
+            ]
+        },
+        "release_date": "2026-04-01"
     }
-  },
-  "1.35.0": {
-    "release_date": "2026-03-01",
-    "channels": {
-      "bilibili": {
-        "version": "4.3.0",
-        "zip_url": "https://xc-1253504421.cos.ap-shanghai.myqcloud.com/bilibili/Bilibili_iOS_SDK_v4.3.0.zip",
-        "size_bytes": 680000000
-      }
-    }
-  }
 }

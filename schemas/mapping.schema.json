@@ -3,37 +3,52 @@
   "title": "OneSDK Mapping Schema",
   "description": "Schema for onesdk.json - maps OneSDK versions to channel versions",
   "type": "object",
-  "additionalProperties": {
-    "type": "object",
-    "required": ["release_date", "channels"],
-    "properties": {
-      "release_date": {
-        "type": "string",
-        "format": "date",
-        "description": "Release date in YYYY-MM-DD format"
-      },
-      "channels": {
-        "type": "object",
-        "additionalProperties": {
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional relative schema reference"
+    }
+  },
+  "patternProperties": {
+    "^[0-9]+\\.[0-9]+\\.[0-9]+$": {
+      "type": "object",
+      "required": ["release_date", "channels"],
+      "properties": {
+        "release_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Release date in YYYY-MM-DD format"
+        },
+        "channels": {
           "type": "object",
-          "required": ["version", "zip_url"],
-          "properties": {
-            "version": {
-              "type": "string",
-              "description": "Channel SDK version"
-            },
-            "zip_url": {
-              "type": "string",
-              "format": "uri",
-              "description": "COS/CDN URL to download the ZIP package"
-            },
-            "size_bytes": {
-              "type": "integer",
-              "description": "ZIP file size in bytes"
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["version", "zip_url", "md5"],
+              "properties": {
+                "version": {
+                  "type": "string",
+                  "description": "Channel SDK version"
+                },
+                "zip_url": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "COS/CDN URL to download the ZIP package"
+                },
+                "md5": {
+                  "type": "string",
+                  "description": "ZIP file MD5"
+                }
+              },
+              "additionalProperties": true
             }
           }
         }
-      }
+      },
+      "additionalProperties": false
     }
-  }
+  },
+  "additionalProperties": false
 }
