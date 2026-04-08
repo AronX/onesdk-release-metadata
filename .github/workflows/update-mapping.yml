@@ -1,0 +1,153 @@
+name: Update OneSDK Mapping
+
+on:
+  workflow_dispatch:
+    inputs:
+      onesdk_version:
+        description: 'OneSDK 版本号 (如 1.36.0)'
+        required: true
+        type: string
+      channel:
+        description: '渠道名称 (如 bilibili)'
+        required: true
+        type: string
+      channel_version:
+        description: '渠道版本号 (如 4.4.0)'
+        required: true
+        type: string
+      zip_url:
+        description: 'CDN 下载地址'
+        required: true
+        type: string
+      md5:
+        description: '文件 MD5 (可选)'
+        required: false
+        type: string
+      release_date:
+        description: '发布日期 (如 2026-04-08，留空则自动使用今天)'
+        required: false
+        type: string
+
+jobs:
+  update-mapping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update onesdk.json
+        run: |
+          # 获取输入参数
+          ONESDK_VERSION=${{ github.event.inputs.onesdk_version }}
+          CHANNEL=${{ github.event.inputs.channel }}
+          CHANNEL_VERSION=${{ github.event.inputs.channel_version }}
+          ZIP_URL=${{ github.event.inputs.zip_url }}
+          MD5=${{ github.event.inputs.md5 }}
+          RELEASE_DATE=${{ github.event.inputs.release_date }}
+
+          # 如果没有指定日期，使用今天
+          if [ -z "$RELEASE_DATE" ]; then
+            RELEASE_DATE=$(date +%Y-%m-%d)
+          fi
+
+          echo "更新内容:"
+          echo "  OneSDK 版本: $ONESDK_VERSION"
+          echo "  渠道: $CHANNEL"
+          echo "  渠道版本: $CHANNEL_VERSION"
+          echo "  发布日期: $RELEASE_DATE"
+          echo "  ZIP URL: $ZIP_URL"
+          echo "  MD5: $MD5"
+
+          # 读取现有 JSON
+          cat mappings/onesdk.json
+
+          # 使用 jq 更新 JSON
+          # 如果 OneSDK 版本已存在，添加/更新渠道
+          # 如果 OneSDK 版本不存在，创建新条目
+
+          if [ -z "$MD5" ]; then
+            # 没有 MD5 的情况
+            jq --arg v "$ONESDK_VERSION" \
+               --arg date "$RELEASE_DATE" \
+               --arg ch "$CHANNEL" \
+               --arg cv "$CHANNEL_VERSION" \
+               --arg url "$ZIP_URL" \
+               '
+               if .[$v] then
+                 .[$v].release_date = $date |
+                 .[$v].channels[$ch] = {
+                   "version": $cv,
+                   "zip_url": $url
+                 }
+               else
+                 .[$v] = {
+                   "release_date": $date,
+                   "channels": {
+                     ($ch): {
+                       "version": $cv,
+                       "zip_url": $url
+                     }
+                   }
+                 }
+               end
+               ' mappings/onesdk.json > tmp.json && mv tmp.json mappings/onesdk.json
+          else
+            # 有 MD5 的情况
+            jq --arg v "$ONESDK_VERSION" \
+               --arg date "$RELEASE_DATE" \
+               --arg ch "$CHANNEL" \
+               --arg cv "$CHANNEL_VERSION" \
+               --arg url "$ZIP_URL" \
+               --arg md5 "$MD5" \
+               '
+               if .[$v] then
+                 .[$v].release_date = $date |
+                 .[$v].channels[$ch] = {
+                   "version": $cv,
+                   "zip_url": $url,
+                   "md5": $md5
+                 }
+               else
+                 .[$v] = {
+                   "release_date": $date,
+                   "channels": {
+                     ($ch): {
+                       "version": $cv,
+                       "zip_url": $url,
+                       "md5": $md5
+                     }
+                   }
+                 }
+               end
+               ' mappings/onesdk.json > tmp.json && mv tmp.json mappings/onesdk.json
+          fi
+
+          echo ""
+          echo "更新后的 JSON:"
+          cat mappings/onesdk.json
+
+      - name: Create PR or push directly
+        run: |
+          CHANNEL=${{ github.event.inputs.channel }}
+          ONESDK_VERSION=${{ github.event.inputs.onesdk_version }}
+          CHANNEL_VERSION=${{ github.event.inputs.channel_version }}
+
+          # 配置 git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 添加更改
+          git add mappings/onesdk.json
+          git status
+
+          # 检查是否有更改
+          if git diff --staged --quiet; then
+            echo "没有需要提交的更改"
+          else
+            # 提交更改
+            git commit -m "chore: add $CHANNEL $CHANNEL_VERSION mapping for OneSDK $ONESDK_VERSION"
+
+            # 推送到远程
+            git push
+            echo "已推送更新"
+          fi
