@@ -1,0 +1,9 @@
+{
+  "name": "onesdk-metadata-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight local service for OneSDK metadata visual admin",
+  "scripts": {
+    "start": "node src/server.js"
+  }
+}

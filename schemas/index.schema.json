@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OneSDK Mapping Index Schema",
+  "description": "Schema for index.json - lists available OneSDK versions and their mapping files",
+  "type": "object",
+  "required": ["versions"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "versions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["version", "release_date", "file"],
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+          },
+          "release_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "file": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OneSDK Metadata Admin</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>OneSDK Metadata Admin</h1>
+          <p id="status-text">正在加载 metadata...</p>
+        </div>
+        <div class="topbar-actions">
+          <button id="new-version-button" class="primary ghost">新增 OneSDK 版本</button>
+          <button id="refresh-button" class="ghost">刷新</button>
+          <button id="show-changes-button" class="ghost">查看变更</button>
+          <button id="save-button" class="primary" disabled>保存</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="sidebar">
+          <div class="sidebar-header">
+            <h2>OneSDK 版本</h2>
+          </div>
+          <div id="version-list" class="version-list"></div>
+        </aside>
+
+        <section class="detail-panel">
+          <div id="detail-view" class="detail-view"></div>
+        </section>
+
+        <aside class="editor-panel">
+          <div class="editor-header">
+            <h2 id="editor-title">编辑区</h2>
+          </div>
+          <div id="editor-body" class="editor-body empty">
+            请选择一个版本或条目开始编辑
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <dialog id="new-version-dialog">
+      <form id="new-version-form" method="dialog" class="dialog-form">
+        <h3>新增 OneSDK 版本</h3>
+        <label>
+          <span>OneSDK 版本号</span>
+          <input id="new-version-input" name="version" placeholder="例如 1.37.0" required />
+        </label>
+        <label>
+          <span>发布日期</span>
+          <input id="new-version-date-input" name="release_date" type="date" required />
+        </label>
+        <p id="new-version-error" class="error-text hidden"></p>
+        <div class="dialog-actions">
+          <button type="button" id="new-version-cancel">取消</button>
+          <button type="submit" class="primary">创建</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="changes-dialog">
+      <div class="dialog-form dialog-wide">
+        <h3>查看变更</h3>
+        <div id="changes-summary" class="changes-summary"></div>
+        <div class="dialog-actions">
+          <button id="changes-close">关闭</button>
+        </div>
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+{
+  "$schema": "../schemas/index.schema.json",
+  "versions": [
+    {
+      "version": "1.36.0",
+      "release_date": "2026-04-01",
+      "file": "versions/1.36.0.json"
+    }
+  ]
+}

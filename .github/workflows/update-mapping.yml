@@ -35,20 +35,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Update onesdk.json
+      - name: Update versioned mapping files
         run: |
-          # 获取输入参数
           ONESDK_VERSION=${{ github.event.inputs.onesdk_version }}
           CHANNEL=${{ github.event.inputs.channel }}
           CHANNEL_VERSION=${{ github.event.inputs.channel_version }}
           ZIP_URL=${{ github.event.inputs.zip_url }}
           MD5=${{ github.event.inputs.md5 }}
           RELEASE_DATE=${{ github.event.inputs.release_date }}
+          INDEX_FILE="mappings/index.json"
+          VERSION_DIR="mappings/versions"
+          VERSION_FILE="${VERSION_DIR}/${ONESDK_VERSION}.json"
+          VERSION_RELATIVE_FILE="versions/${ONESDK_VERSION}.json"
 
-          # 如果没有指定日期，使用今天
           if [ -z "$RELEASE_DATE" ]; then
             RELEASE_DATE=$(date +%Y-%m-%d)
           fi
+
+          mkdir -p "${VERSION_DIR}"
 
           echo "更新内容:"
           echo "  OneSDK 版本: $ONESDK_VERSION"
@@ -58,73 +62,90 @@ jobs:
           echo "  ZIP URL: $ZIP_URL"
           echo "  MD5: $MD5"
 
-          # 读取现有 JSON
-          cat mappings/onesdk.json
-
-          # 使用 jq 更新 JSON
-          # 如果 OneSDK 版本已存在，添加/更新渠道
-          # 如果 OneSDK 版本不存在，创建新条目
-
-          if [ -z "$MD5" ]; then
-            # 没有 MD5 的情况
-            jq --arg v "$ONESDK_VERSION" \
-               --arg date "$RELEASE_DATE" \
-               --arg ch "$CHANNEL" \
-               --arg cv "$CHANNEL_VERSION" \
-               --arg url "$ZIP_URL" \
-               '
-               if .[$v] then
-                 .[$v].release_date = $date |
-                 .[$v].channels[$ch] = {
-                   "version": $cv,
-                   "zip_url": $url
-                 }
-               else
-                 .[$v] = {
-                   "release_date": $date,
-                   "channels": {
-                     ($ch): {
-                       "version": $cv,
-                       "zip_url": $url
-                     }
-                   }
-                 }
-               end
-               ' mappings/onesdk.json > tmp.json && mv tmp.json mappings/onesdk.json
-          else
-            # 有 MD5 的情况
-            jq --arg v "$ONESDK_VERSION" \
-               --arg date "$RELEASE_DATE" \
-               --arg ch "$CHANNEL" \
-               --arg cv "$CHANNEL_VERSION" \
-               --arg url "$ZIP_URL" \
-               --arg md5 "$MD5" \
-               '
-               if .[$v] then
-                 .[$v].release_date = $date |
-                 .[$v].channels[$ch] = {
-                   "version": $cv,
-                   "zip_url": $url,
-                   "md5": $md5
-                 }
-               else
-                 .[$v] = {
-                   "release_date": $date,
-                   "channels": {
-                     ($ch): {
-                       "version": $cv,
-                       "zip_url": $url,
-                       "md5": $md5
-                     }
-                   }
-                 }
-               end
-               ' mappings/onesdk.json > tmp.json && mv tmp.json mappings/onesdk.json
+          if [ ! -f "${INDEX_FILE}" ]; then
+            printf '%s\n' \
+              '{' \
+              '  "$schema": "../schemas/index.schema.json",' \
+              '  "versions": []' \
+              '}' > "${INDEX_FILE}"
           fi
 
+          if [ ! -f "${VERSION_FILE}" ]; then
+            printf '%s\n' \
+              '{' \
+              '  "$schema": "../../schemas/version.schema.json",' \
+              "  \"version\": \"${ONESDK_VERSION}\"," \
+              "  \"release_date\": \"${RELEASE_DATE}\"," \
+              '  "channels": {}' \
+              '}' > "${VERSION_FILE}"
+          fi
+
+          if [ -z "$MD5" ]; then
+            jq --arg version "$ONESDK_VERSION" \
+               --arg date "$RELEASE_DATE" \
+               --arg channel "$CHANNEL" \
+               --arg channel_version "$CHANNEL_VERSION" \
+               --arg zip_url "$ZIP_URL" \
+               '
+               .release_date = $date
+               | .channels[$channel] = (
+                   ((.channels[$channel] // []) | map(select(.version != $channel_version)))
+                   + [
+                       {
+                         "version": $channel_version,
+                         "zip_url": $zip_url,
+                         "release_date": $date
+                       }
+                     ]
+                 )
+               ' "${VERSION_FILE}" > tmp.json && mv tmp.json "${VERSION_FILE}"
+          else
+            jq --arg version "$ONESDK_VERSION" \
+               --arg date "$RELEASE_DATE" \
+               --arg channel "$CHANNEL" \
+               --arg channel_version "$CHANNEL_VERSION" \
+               --arg zip_url "$ZIP_URL" \
+               --arg md5 "$MD5" \
+               '
+               .release_date = $date
+               | .channels[$channel] = (
+                   ((.channels[$channel] // []) | map(select(.version != $channel_version)))
+                   + [
+                       {
+                         "version": $channel_version,
+                         "zip_url": $zip_url,
+                         "md5": $md5,
+                         "release_date": $date
+                       }
+                     ]
+                 )
+               ' "${VERSION_FILE}" > tmp.json && mv tmp.json "${VERSION_FILE}"
+          fi
+
+          jq --arg version "$ONESDK_VERSION" \
+             --arg date "$RELEASE_DATE" \
+             --arg file "$VERSION_RELATIVE_FILE" \
+             '
+             .versions |= (
+               map(select(.version != $version))
+               + [
+                   {
+                     "version": $version,
+                     "release_date": $date,
+                     "file": $file
+                   }
+                 ]
+             )
+             | .versions |= sort_by(.version)
+             ' "${INDEX_FILE}" > tmp.json && mv tmp.json "${INDEX_FILE}"
+
           echo ""
-          echo "更新后的 JSON:"
-          cat mappings/onesdk.json
+          echo "更新后的 index.json:"
+          cat "${INDEX_FILE}"
+
+          echo ""
+          echo "更新后的版本文件:"
+          cat "${VERSION_FILE}"
 
       - name: Create PR or push directly
         run: |
@@ -136,8 +157,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 添加更改
-          git add mappings/onesdk.json
+          git add mappings/index.json mappings/versions
           git status
 
           # 检查是否有更改
