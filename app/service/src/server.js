@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
+const { execFileSync, execSync } = require("child_process");
 
 const PORT = Number(process.env.PORT || 3210);
 const SERVICE_ROOT = path.resolve(__dirname, "..");
@@ -10,6 +11,7 @@ const WEB_ROOT = path.resolve(REPO_ROOT, "app", "web");
 const MAPPINGS_ROOT = path.resolve(REPO_ROOT, "mappings");
 const VERSIONS_ROOT = path.resolve(MAPPINGS_ROOT, "versions");
 const INDEX_FILE = path.resolve(MAPPINGS_ROOT, "index.json");
+const PUBLISH_TARGETS = ["mappings/index.json", "mappings/versions"];
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -29,6 +31,44 @@ function sendJson(res, statusCode, payload) {
 function sendText(res, statusCode, text) {
   res.writeHead(statusCode, { "Content-Type": "text/plain; charset=utf-8" });
   res.end(text);
+}
+
+function runGit(args) {
+  try {
+    return execFileSync("git", args, {
+      cwd: REPO_ROOT,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    const stderr = String(error.stderr || "").trim();
+    const stdout = String(error.stdout || "").trim();
+    const detail = stderr || stdout || error.message;
+    const wrapped = new Error(detail || `git ${args.join(" ")} 执行失败`);
+    wrapped.statusCode = 400;
+    throw wrapped;
+  }
+}
+
+function runGitAllowing(args, allowedExitCodes = [0]) {
+  try {
+    return execFileSync("git", args, {
+      cwd: REPO_ROOT,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    const exitCode = typeof error.status === "number" ? error.status : null;
+    if (exitCode !== null && allowedExitCodes.includes(exitCode)) {
+      return String(error.stdout || "");
+    }
+    const stderr = String(error.stderr || "").trim();
+    const stdout = String(error.stdout || "").trim();
+    const detail = stderr || stdout || error.message;
+    const wrapped = new Error(detail || `git ${args.join(" ")} 执行失败`);
+    wrapped.statusCode = 400;
+    throw wrapped;
+  }
 }
 
 function readJson(filePath) {
@@ -125,7 +165,8 @@ function validateIndexDocument(indexJson) {
   }
 }
 
-function validateVersionDocument(versionJson, expectedVersion) {
+function validateVersionDocument(versionJson, expectedVersion, options = {}) {
+  const { allowEmptyChannels = false } = options;
   if (!versionJson || typeof versionJson !== "object") {
     throw new Error("版本文件内容不能为空");
   }
@@ -140,6 +181,9 @@ function validateVersionDocument(versionJson, expectedVersion) {
   }
   if (!versionJson.channels || typeof versionJson.channels !== "object" || Array.isArray(versionJson.channels)) {
     throw new Error("版本文件 channels 必须为对象");
+  }
+  if (!allowEmptyChannels && Object.keys(versionJson.channels).length === 0) {
+    throw new Error(`版本 ${expectedVersion} 还没有配置任何渠道映射，不能提交发布`);
   }
 
   for (const [channelName, entries] of Object.entries(versionJson.channels)) {
@@ -178,6 +222,20 @@ function validateVersionDocument(versionJson, expectedVersion) {
   }
 }
 
+function validatePublishableMetadataFiles(files) {
+  const indexJson = loadIndex();
+  validateIndexDocument(indexJson);
+
+  for (const file of files) {
+    if (!file.path.startsWith("mappings/versions/") || !file.path.endsWith(".json")) {
+      continue;
+    }
+    const version = path.basename(file.path, ".json");
+    const versionJson = loadVersion(version);
+    validateVersionDocument(versionJson, version, { allowEmptyChannels: false });
+  }
+}
+
 function normalizeVersionDocument(input) {
   const versionJson = {
     $schema: "../../schemas/version.schema.json",
@@ -199,6 +257,89 @@ function normalizeVersionDocument(input) {
     }));
   }
   return versionJson;
+}
+
+function currentBranchName() {
+  return runGit(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+}
+
+function isPublishablePath(filePath) {
+  return filePath === "mappings/index.json" || filePath.startsWith("mappings/versions/");
+}
+
+function gitStatusSummary() {
+  const porcelain = runGit(["status", "--short"]);
+  const lines = porcelain ? porcelain.split("\n").filter(Boolean) : [];
+  const files = lines.map((line) => ({
+    status: line.slice(0, 2).trim() || "??",
+    path: line.slice(3).trim()
+  }));
+  const publishableFiles = files.filter((item) => isPublishablePath(item.path));
+  const blockedFiles = files.filter((item) => !isPublishablePath(item.path));
+  return {
+    clean: files.length === 0,
+    branch: currentBranchName(),
+    files,
+    publishable_files: publishableFiles,
+    blocked_files: blockedFiles
+  };
+}
+
+function gitDiffForFile(file) {
+  if (file.status === "??") {
+    return runGitAllowing(["diff", "--no-index", "--no-color", "--", "/dev/null", file.path], [0, 1]).trim();
+  }
+  return runGitAllowing(["diff", "--no-color", "--", file.path], [0, 1]).trim();
+}
+
+function gitDiffSummary() {
+  const status = gitStatusSummary();
+  const files = status.publishable_files.map((file) => ({
+    status: file.status,
+    path: file.path,
+    diff: gitDiffForFile(file)
+  }));
+  const diff = files
+    .map((file) => file.diff)
+    .filter(Boolean)
+    .join("\n");
+  return {
+    diff,
+    files
+  };
+}
+
+function gitCommit(message) {
+  if (!message || !message.trim()) {
+    throw new Error("commit message 不能为空");
+  }
+  const status = gitStatusSummary();
+  if (status.publishable_files.length === 0) {
+    throw new Error("当前没有可发布的 metadata 改动");
+  }
+  validatePublishableMetadataFiles(status.publishable_files);
+  runGit(["add", ...PUBLISH_TARGETS]);
+  runGit(["commit", "-m", message.trim()]);
+  const hash = runGit(["rev-parse", "--short", "HEAD"]);
+  return {
+    commit: hash.trim(),
+    branch: currentBranchName(),
+    published_files: status.publishable_files.map((item) => item.path)
+  };
+}
+
+function gitPush() {
+  const branch = currentBranchName();
+  runGit(["push", "origin", branch]);
+  return {
+    branch
+  };
+}
+
+function discardMappingsChanges() {
+  runGit(["restore", "--source=HEAD", "--staged", "--worktree", "--", ...PUBLISH_TARGETS]);
+  runGitAllowing(["clean", "-fd", "--", "mappings"], [0, 1]);
+  return gitStatusSummary();
 }
 
 function buildVersionSummary(version, releaseDate, channels) {
@@ -250,7 +391,7 @@ function createVersion(version, releaseDate) {
     release_date: releaseDate,
     channels: {}
   };
-  validateVersionDocument(versionJson, version);
+  validateVersionDocument(versionJson, version, { allowEmptyChannels: true });
   writeJson(versionFilePath(version), versionJson);
 
   const nextIndex = {
@@ -267,7 +408,7 @@ function createVersion(version, releaseDate) {
 
 function saveVersion(version, input) {
   const normalized = normalizeVersionDocument(input);
-  validateVersionDocument(normalized, version);
+  validateVersionDocument(normalized, version, { allowEmptyChannels: true });
   writeJson(versionFilePath(version), normalized);
 
   const currentIndex = loadIndex();
@@ -351,7 +492,7 @@ async function handleApi(req, res, pathname) {
     if (req.method === "GET" && pathname.startsWith("/api/version/")) {
       const version = decodeURIComponent(pathname.replace("/api/version/", ""));
       const versionJson = loadVersion(version);
-      validateVersionDocument(versionJson, version);
+      validateVersionDocument(versionJson, version, { allowEmptyChannels: true });
       sendJson(res, 200, versionJson);
       return;
     }
@@ -368,6 +509,32 @@ async function handleApi(req, res, pathname) {
       const body = await collectRequestBody(req);
       const versionJson = saveVersion(version, body);
       sendJson(res, 200, versionJson);
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/api/git/status") {
+      sendJson(res, 200, gitStatusSummary());
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/api/git/diff") {
+      sendJson(res, 200, gitDiffSummary());
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/git/commit") {
+      const body = await collectRequestBody(req);
+      sendJson(res, 200, gitCommit(String(body.message || "")));
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/git/push") {
+      sendJson(res, 200, gitPush());
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/git/discard-mappings") {
+      sendJson(res, 200, discardMappingsChanges());
       return;
     }
 
@@ -390,6 +557,50 @@ const server = http.createServer(async (req, res) => {
   }
 
   serveStatic(req, res, pathname);
+});
+
+function describePortOccupant(port) {
+  try {
+    const pid = execSync(`lsof -ti tcp:${port}`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"]
+    })
+      .trim()
+      .split("\n")
+      .filter(Boolean)[0];
+
+    if (!pid) {
+      return null;
+    }
+
+    const command = execSync(`ps -p ${pid} -o command=`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+
+    return { pid, command };
+  } catch (_) {
+    return null;
+  }
+}
+
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    const occupant = describePortOccupant(PORT);
+    console.error(`端口 ${PORT} 已被占用，当前服务无法启动。`);
+    if (occupant) {
+      console.error(`占用进程 PID: ${occupant.pid}`);
+      console.error(`占用命令: ${occupant.command}`);
+      console.error(`可执行: kill ${occupant.pid}`);
+    } else {
+      console.error(`可执行: lsof -iTCP:${PORT} -sTCP:LISTEN 查看占用进程`);
+    }
+    console.error(`或者使用临时端口启动: PORT=${PORT + 1} npm start`);
+    process.exit(1);
+  }
+
+  console.error(error);
+  process.exit(1);
 });
 
 server.listen(PORT, () => {

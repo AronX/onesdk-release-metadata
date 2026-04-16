@@ -18,6 +18,7 @@ const elements = {
   editorTitle: document.getElementById("editor-title"),
   editorBody: document.getElementById("editor-body"),
   saveButton: document.getElementById("save-button"),
+  publishButton: document.getElementById("publish-button"),
   refreshButton: document.getElementById("refresh-button"),
   newVersionButton: document.getElementById("new-version-button"),
   showChangesButton: document.getElementById("show-changes-button"),
@@ -30,6 +31,21 @@ const elements = {
   changesDialog: document.getElementById("changes-dialog"),
   changesSummary: document.getElementById("changes-summary"),
   changesClose: document.getElementById("changes-close"),
+  publishDialog: document.getElementById("publish-dialog"),
+  publishChangesSummary: document.getElementById("publish-changes-summary"),
+  publishGitStatus: document.getElementById("publish-git-status"),
+  publishDiffFiles: document.getElementById("publish-diff-files"),
+  publishGitDiff: document.getElementById("publish-git-diff"),
+  commitMessageInput: document.getElementById("commit-message-input"),
+  publishError: document.getElementById("publish-error"),
+  publishClose: document.getElementById("publish-close"),
+  discardMappingsButton: document.getElementById("discard-mappings-button"),
+  commitButton: document.getElementById("commit-button"),
+  pushButton: document.getElementById("push-button"),
+  discardConfirmDialog: document.getElementById("discard-confirm-dialog"),
+  discardConfirmCancel: document.getElementById("discard-confirm-cancel"),
+  discardConfirmSubmit: document.getElementById("discard-confirm-submit"),
+  flowSteps: document.getElementById("flow-steps"),
   toast: document.getElementById("toast")
 };
 
@@ -54,11 +70,20 @@ function semverCompare(a, b) {
 function setDirty(flag) {
   state.dirty = flag;
   elements.saveButton.disabled = !flag;
+  elements.publishButton.disabled = flag || !state.selectedVersion;
   renderStatus(flag ? "当前存在未保存修改" : "已加载 metadata");
+  renderFlow(flag ? 2 : state.selectedVersion ? 3 : 1);
 }
 
 function renderStatus(text) {
   elements.statusText.textContent = text;
+}
+
+function renderFlow(stepIndex) {
+  const steps = elements.flowSteps.querySelectorAll(".flow-step");
+  steps.forEach((step, index) => {
+    step.classList.toggle("active", index + 1 === stepIndex);
+  });
 }
 
 function showToast(message, tone = "success") {
@@ -543,10 +568,332 @@ function openNewVersionDialog() {
   elements.newVersionDialog.showModal();
 }
 
-function openChangesDialog() {
+async function openChangesDialog() {
   const changes = buildChangeSummary();
-  elements.changesSummary.innerHTML = `<ul>${changes.map((item) => `<li>${item}</li>`).join("")}</ul>`;
+  try {
+    const gitState = await loadGitState();
+    const publishableFiles = Array.isArray(gitState.status.publishable_files) ? gitState.status.publishable_files : [];
+    elements.changesSummary.innerHTML = renderChangesSummaryHtml(changes, publishableFiles);
+  } catch (_) {
+    elements.changesSummary.innerHTML = renderChangesSummaryHtml(changes, []);
+  }
   elements.changesDialog.showModal();
+}
+
+async function loadGitState() {
+  const [status, diff] = await Promise.all([apiFetch("/api/git/status"), apiFetch("/api/git/diff")]);
+  return { status, diff };
+}
+
+function defaultCommitMessage() {
+  return `chore: update onesdk metadata for ${state.selectedVersion}`;
+}
+
+function statusMeta(status) {
+  if (status === "??") {
+    return { label: "新文件", tone: "new" };
+  }
+  if (String(status).includes("M")) {
+    return { label: "已修改", tone: "modified" };
+  }
+  if (String(status).includes("D")) {
+    return { label: "已删除", tone: "deleted" };
+  }
+  if (String(status).includes("A")) {
+    return { label: "已新增", tone: "new" };
+  }
+  return { label: "已变更", tone: "default" };
+}
+
+function renderFileList(items, emptyText, withStatus = true) {
+  if (!items.length) {
+    return `<p>${emptyText}</p>`;
+  }
+  return `
+    <ul class="publish-file-list">
+      ${items
+        .map((item) => {
+          const meta = statusMeta(item.status || "");
+          return `
+            <li>
+              ${withStatus ? `<span class="status-pill ${meta.tone}">${meta.label}</span>` : ""}
+              <code>${item.path}</code>
+            </li>
+          `;
+        })
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderChangesSummaryHtml(changes, publishableFiles) {
+  const hasUnsavedChanges = changes.length && !(changes.length === 1 && changes[0] === "当前没有待保存修改");
+  const unsavedHtml = hasUnsavedChanges
+    ? `<ul>${changes.map((item) => `<li>${item}</li>`).join("")}</ul>`
+    : `
+      <div class="changes-summary-card">
+        <h5>当前没有未保存修改</h5>
+        <p>如果你刚刚新增了一个空版本，那一步在创建时已经直接写入工作区文件了，所以这里不会再显示“待保存修改”。接下来可以直接进入发布。</p>
+      </div>
+    `;
+
+  const publishableHtml = publishableFiles.length
+    ? `
+      <div class="changes-summary-card">
+        <h5>当前已有待发布文件</h5>
+        <p>这些文件已经保存到工作区，可以直接进入发布。</p>
+        ${renderFileList(publishableFiles, "当前没有待发布文件。")}
+      </div>
+    `
+    : `
+      <div class="changes-summary-card">
+        <h5>当前没有待发布文件</h5>
+        <p>如果你还没有保存编辑内容，先完成保存；如果已经保存但这里仍为空，说明当前 metadata 工作区没有新的改动。</p>
+      </div>
+    `;
+
+  return `${unsavedHtml}${publishableHtml}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function renderDiffContent(rawDiff) {
+  const lines = String(rawDiff || "").split("\n");
+  const visibleLines = lines.filter(
+    (line) =>
+      !line.startsWith("diff --git ") &&
+      !line.startsWith("index ") &&
+      !line.startsWith("--- ") &&
+      !line.startsWith("+++ ") &&
+      !line.startsWith("new file mode ") &&
+      !line.startsWith("deleted file mode ")
+  );
+
+  if (!visibleLines.some((line) => line.length > 0)) {
+    return '<div class="git-diff empty">当前文件没有可展示的源码变更</div>';
+  }
+
+  const lineHtml = visibleLines
+    .map((line) => {
+      let kind = "context";
+      let sign = " ";
+      let content = line;
+
+      if (line.startsWith("@@")) {
+        kind = "hunk";
+        sign = "@@";
+      } else if (line.startsWith("+")) {
+        kind = "add";
+        sign = "+";
+        content = line.slice(1);
+      } else if (line.startsWith("-")) {
+        kind = "delete";
+        sign = "-";
+        content = line.slice(1);
+      } else if (line.startsWith(" ")) {
+        content = line.slice(1);
+      }
+
+      const emptyClass = content.length === 0 ? " empty-line" : "";
+      return `
+        <div class="diff-line ${kind}${emptyClass}">
+          <div class="diff-sign">${escapeHtml(sign)}</div>
+          <div class="diff-content">${escapeHtml(content)}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<div class="diff-lines">${lineHtml}</div>`;
+}
+
+function renderDiffBrowser(files) {
+  if (!files.length) {
+    elements.publishDiffFiles.innerHTML = "";
+    elements.publishGitDiff.innerHTML = "当前没有可展示的 diff";
+    elements.publishGitDiff.classList.add("empty");
+    return;
+  }
+
+  elements.publishGitDiff.classList.remove("empty");
+  let activeIndex = 0;
+
+  const renderActive = () => {
+    elements.publishDiffFiles.innerHTML = files
+      .map((file, index) => {
+        const meta = statusMeta(file.status || "");
+        return `
+          <button class="diff-file-button ${index === activeIndex ? "active" : ""}" data-index="${index}">
+            <span class="status-pill ${meta.tone}">${meta.label}</span>
+            <span class="diff-file-path">${file.path}</span>
+          </button>
+        `;
+      })
+      .join("");
+
+    const activeFile = files[activeIndex];
+    elements.publishGitDiff.innerHTML = renderDiffContent(activeFile?.diff || "");
+
+    elements.publishDiffFiles.querySelectorAll("[data-index]").forEach((button) => {
+      button.addEventListener("click", () => {
+        activeIndex = Number(button.dataset.index || 0);
+        renderActive();
+      });
+    });
+  };
+
+  renderActive();
+}
+
+function renderPublishGitStatus(status) {
+  const publishableFiles = Array.isArray(status.publishable_files) ? status.publishable_files : [];
+  const branch = status.branch || "-";
+  const clean = Boolean(status.clean);
+  const blockedCount = Array.isArray(status.blocked_files) ? status.blocked_files.length : 0;
+
+  return `
+    <div class="git-explainer">
+      <strong>这一步在做什么</strong>
+      <div>发布只会提交 metadata 文件，也就是 <code>mappings/index.json</code> 和 <code>mappings/versions/*.json</code>。</div>
+      ${
+        blockedCount
+          ? `<div>当前工作区里还有 ${blockedCount} 个其它改动，它们会保留在本地，不会进入这次 commit。</div>`
+          : `<div>当前工作区没有额外噪音改动，这次发布会聚焦在 metadata 文件本身。</div>`
+      }
+    </div>
+    <div class="git-status-grid">
+      <div class="git-status-card">
+        <div class="git-status-label">当前分支</div>
+        <div class="git-status-value text">${branch}</div>
+      </div>
+      <div class="git-status-card">
+        <div class="git-status-label">工作区状态</div>
+        <div class="git-status-value text">${clean ? "干净" : "存在改动"}</div>
+      </div>
+      <div class="git-status-card">
+        <div class="git-status-label">本次会提交</div>
+        <div class="git-status-value">${publishableFiles.length}</div>
+      </div>
+    </div>
+    <div class="publish-file-group">
+      <div class="publish-file-card allowed">
+        <h5>本次会提交的文件</h5>
+        <p>这些文件会被 <code>git add</code> 并进入这次 metadata 发布 commit。</p>
+        ${renderFileList(publishableFiles, "当前没有可提交的 metadata 文件。")}
+      </div>
+    </div>
+  `;
+}
+
+async function openPublishDialog() {
+  if (state.dirty) {
+    showToast("请先保存当前修改，再进入发布。", "error");
+    return;
+  }
+  try {
+    renderFlow(4);
+    elements.publishError.classList.add("hidden");
+    const changes = buildChangeSummary();
+    const gitState = await loadGitState();
+    elements.publishChangesSummary.innerHTML = `<ul>${changes.map((item) => `<li>${item}</li>`).join("")}</ul>`;
+    elements.publishGitStatus.innerHTML = renderPublishGitStatus(gitState.status);
+    renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
+    if (!elements.commitMessageInput.value.trim()) {
+      elements.commitMessageInput.value = defaultCommitMessage();
+    }
+    elements.publishDialog.showModal();
+  } catch (error) {
+    renderFlow(3);
+    showToast(error.message, "error");
+  }
+}
+
+async function runCommit() {
+  const message = elements.commitMessageInput.value.trim();
+  try {
+    elements.publishError.classList.add("hidden");
+    const result = await apiFetch("/api/git/commit", {
+      method: "POST",
+      body: JSON.stringify({ message })
+    });
+    renderFlow(5);
+    showToast(`已创建 commit ${result.commit}`, "success");
+    const gitState = await loadGitState();
+    elements.publishGitStatus.innerHTML = `
+      <div class="git-explainer">
+        <strong>Commit 已完成</strong>
+        <div>当前 metadata 改动已经写入本地 git 提交。下一步如果你确认没问题，就可以继续执行 push。</div>
+      </div>
+      <div class="git-status-grid">
+        <div class="git-status-card">
+          <div class="git-status-label">当前分支</div>
+          <div class="git-status-value text">${gitState.status.branch}</div>
+        </div>
+        <div class="git-status-card">
+          <div class="git-status-label">最新 commit</div>
+          <div class="git-status-value text">${result.commit}</div>
+        </div>
+        <div class="git-status-card">
+          <div class="git-status-label">工作区状态</div>
+          <div class="git-status-value text">${gitState.status.clean ? "干净" : "仍有改动"}</div>
+        </div>
+        <div class="git-status-card">
+          <div class="git-status-label">提交文件数</div>
+          <div class="git-status-value">${(result.published_files || []).length}</div>
+        </div>
+      </div>
+      <div class="publish-file-card allowed">
+        <h5>刚刚提交的文件</h5>
+        ${renderFileList(
+          (result.published_files || []).map((path) => ({ status: "M", path })),
+          "这次没有提交任何 metadata 文件。"
+        )}
+      </div>
+    `;
+    renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
+    return true;
+  } catch (error) {
+    elements.publishError.textContent = `提交失败：${error.message}`;
+    elements.publishError.classList.remove("hidden");
+    showToast(error.message, "error");
+    return false;
+  }
+}
+
+async function runPush() {
+  try {
+    const committed = await runCommit();
+    if (!committed) return;
+    const result = await apiFetch("/api/git/push", { method: "POST" });
+    renderFlow(5);
+    showToast(`已推送到 origin/${result.branch}`, "success");
+    elements.publishDialog.close();
+    await loadIndex(state.selectedVersion);
+  } catch (error) {
+    elements.publishError.textContent = `推送失败：${error.message}`;
+    elements.publishError.classList.remove("hidden");
+    showToast(error.message, "error");
+  }
+}
+
+async function discardMappingsChanges() {
+  try {
+    await apiFetch("/api/git/discard-mappings", { method: "POST" });
+    elements.discardConfirmDialog.close();
+    elements.publishDialog.close();
+    renderFlow(1);
+    showToast("已丢弃 mappings 目录下的变更", "success");
+    await loadIndex();
+  } catch (error) {
+    elements.publishError.textContent = `丢弃失败：${error.message}`;
+    elements.publishError.classList.remove("hidden");
+    showToast(error.message, "error");
+  }
 }
 
 function bindGlobalEvents() {
@@ -558,11 +905,25 @@ function bindGlobalEvents() {
     await loadIndex(state.selectedVersion);
   });
   elements.saveButton.addEventListener("click", saveCurrentVersion);
+  elements.publishButton.addEventListener("click", openPublishDialog);
   elements.newVersionButton.addEventListener("click", openNewVersionDialog);
   elements.showChangesButton.addEventListener("click", openChangesDialog);
   elements.newVersionForm.addEventListener("submit", createVersionFromDialog);
   elements.newVersionCancel.addEventListener("click", () => elements.newVersionDialog.close());
   elements.changesClose.addEventListener("click", () => elements.changesDialog.close());
+  elements.publishClose.addEventListener("click", () => {
+    elements.publishDialog.close();
+    renderFlow(state.selectedVersion ? 3 : 1);
+  });
+  elements.discardMappingsButton.addEventListener("click", () => {
+    elements.discardConfirmDialog.showModal();
+  });
+  elements.discardConfirmCancel.addEventListener("click", () => {
+    elements.discardConfirmDialog.close();
+  });
+  elements.discardConfirmSubmit.addEventListener("click", discardMappingsChanges);
+  elements.commitButton.addEventListener("click", runCommit);
+  elements.pushButton.addEventListener("click", runPush);
 
   window.addEventListener("beforeunload", (event) => {
     if (!state.dirty) return;

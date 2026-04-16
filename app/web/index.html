@@ -12,11 +12,19 @@
         <div>
           <h1>OneSDK Metadata Admin</h1>
           <p id="status-text">正在加载 metadata...</p>
+          <div id="flow-steps" class="flow-steps">
+            <span class="flow-step active">1 选择版本</span>
+            <span class="flow-step">2 编辑映射</span>
+            <span class="flow-step">3 保存校验</span>
+            <span class="flow-step">4 发布确认</span>
+            <span class="flow-step">5 发布完成</span>
+          </div>
         </div>
         <div class="topbar-actions">
           <button id="new-version-button" class="primary ghost">新增 OneSDK 版本</button>
           <button id="refresh-button" class="ghost">刷新</button>
           <button id="show-changes-button" class="ghost">查看变更</button>
+          <button id="publish-button" class="ghost" disabled>进入发布</button>
           <button id="save-button" class="primary" disabled>保存</button>
         </div>
       </header>
@@ -44,17 +52,27 @@
       </main>
     </div>
 
-    <dialog id="new-version-dialog">
+    <dialog id="new-version-dialog" class="dialog-shell">
       <form id="new-version-form" method="dialog" class="dialog-form">
-        <h3>新增 OneSDK 版本</h3>
-        <label>
-          <span>OneSDK 版本号</span>
-          <input id="new-version-input" name="version" placeholder="例如 1.37.0" required />
-        </label>
-        <label>
-          <span>发布日期</span>
-          <input id="new-version-date-input" name="release_date" type="date" required />
-        </label>
+        <div class="dialog-hero">
+          <p class="dialog-eyebrow">Create Version</p>
+          <h3>新增 OneSDK 版本</h3>
+          <p class="dialog-description">
+            创建新的 OneSDK 版本时，会同时生成对应的版本文件，并更新 <code>mappings/index.json</code>。
+          </p>
+        </div>
+        <div class="dialog-grid">
+          <label class="dialog-field">
+            <span>OneSDK 版本号</span>
+            <input id="new-version-input" name="version" placeholder="例如 1.37.0" required />
+            <small>格式固定为 x.y.z，例如 1.37.0</small>
+          </label>
+          <label class="dialog-field">
+            <span>发布日期</span>
+            <input id="new-version-date-input" name="release_date" type="date" required />
+            <small>用于更新索引列表和版本详情头部信息</small>
+          </label>
+        </div>
         <p id="new-version-error" class="error-text hidden"></p>
         <div class="dialog-actions">
           <button type="button" id="new-version-cancel">取消</button>
@@ -63,12 +81,63 @@
       </form>
     </dialog>
 
-    <dialog id="changes-dialog">
+    <dialog id="changes-dialog" class="dialog-shell dialog-shell-wide">
       <div class="dialog-form dialog-wide">
         <h3>查看变更</h3>
         <div id="changes-summary" class="changes-summary"></div>
         <div class="dialog-actions">
           <button id="changes-close">关闭</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="publish-dialog" class="dialog-shell dialog-shell-wide">
+      <div class="dialog-form dialog-wide">
+        <h3>发布确认</h3>
+        <p class="dialog-description">这里会告诉你这次 metadata 发布真正会提交哪些文件。确认无误后，可以先提交 commit，再执行 push。</p>
+        <div class="publish-layout">
+          <section>
+            <h4>变更摘要</h4>
+            <div id="publish-changes-summary" class="changes-summary"></div>
+          </section>
+          <section>
+            <h4>Git 状态</h4>
+            <div id="publish-git-status" class="git-block"></div>
+          </section>
+          <section>
+            <h4>Diff 预览</h4>
+            <div class="diff-browser">
+              <aside id="publish-diff-files" class="diff-file-list"></aside>
+              <div id="publish-git-diff" class="git-diff"></div>
+            </div>
+          </section>
+          <section>
+            <h4>Commit Message</h4>
+            <textarea id="commit-message-input" class="commit-message" placeholder="例如：chore: update onesdk metadata for 1.36.0"></textarea>
+          </section>
+        </div>
+        <p id="publish-error" class="error-text hidden"></p>
+        <div class="dialog-actions">
+          <button id="publish-close">返回继续编辑</button>
+          <button id="discard-mappings-button" class="danger-ghost">丢弃 mappings 变更</button>
+          <button id="commit-button">提交 commit</button>
+          <button id="push-button" class="primary">提交并推送</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="discard-confirm-dialog" class="dialog-shell">
+      <div class="dialog-form">
+        <h3>确认丢弃 mappings 变更</h3>
+        <p class="dialog-description">
+          这个操作只会回退 <code>mappings/</code> 目录下的改动，包括新增版本文件、已修改的 metadata 文件。
+          <br />
+          <strong>不会影响</strong> <code>app/</code>、<code>openspec/</code> 或其它工作区文件。
+        </p>
+        <p class="error-text">丢弃后无法从当前工作区恢复，请确认后再继续。</p>
+        <div class="dialog-actions">
+          <button id="discard-confirm-cancel">取消</button>
+          <button id="discard-confirm-submit" class="danger">确认丢弃</button>
         </div>
       </div>
     </dialog>
