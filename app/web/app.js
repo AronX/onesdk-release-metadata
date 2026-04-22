@@ -31,6 +31,14 @@ const elements = {
   changesDialog: document.getElementById("changes-dialog"),
   changesSummary: document.getElementById("changes-summary"),
   changesClose: document.getElementById("changes-close"),
+  deleteChannelDialog: document.getElementById("delete-channel-dialog"),
+  deleteChannelMessage: document.getElementById("delete-channel-message"),
+  deleteChannelCancel: document.getElementById("delete-channel-cancel"),
+  deleteChannelSubmit: document.getElementById("delete-channel-submit"),
+  deleteVersionDialog: document.getElementById("delete-version-dialog"),
+  deleteVersionMessage: document.getElementById("delete-version-message"),
+  deleteVersionCancel: document.getElementById("delete-version-cancel"),
+  deleteVersionSubmit: document.getElementById("delete-version-submit"),
   publishDialog: document.getElementById("publish-dialog"),
   publishChangesSummary: document.getElementById("publish-changes-summary"),
   publishGitStatus: document.getElementById("publish-git-status"),
@@ -203,6 +211,7 @@ function versionSummaryHtml() {
       </div>
       <div class="detail-header-actions">
         <button id="edit-version-button" class="ghost">编辑版本信息</button>
+        <button id="delete-version-button" class="danger-ghost">删除版本</button>
         <button id="add-channel-button" class="primary ghost">新增渠道</button>
       </div>
     </div>
@@ -248,7 +257,10 @@ function renderChannelBlock(channelName, entries) {
           <h3>${channelName}</h3>
           <div class="meta-line">${entries.length} 个条目</div>
         </div>
-        <button class="primary ghost" data-action="new-entry" data-channel="${channelName}">新增版本条目</button>
+        <div class="channel-actions">
+          <button class="danger-ghost" data-action="delete-channel" data-channel="${channelName}">删除渠道</button>
+          <button class="primary ghost" data-action="new-entry" data-channel="${channelName}">新增版本条目</button>
+        </div>
       </div>
       <table>
         <thead>
@@ -271,12 +283,16 @@ function renderDetail() {
   elements.detailView.innerHTML = versionSummaryHtml();
 
   const editVersionButton = document.getElementById("edit-version-button");
+  const deleteVersionButton = document.getElementById("delete-version-button");
   const addChannelButton = document.getElementById("add-channel-button");
   if (editVersionButton) {
     editVersionButton.addEventListener("click", () => {
       state.editor = { mode: "edit-version", channelName: "", entryVersion: "" };
       renderEditor();
     });
+  }
+  if (deleteVersionButton) {
+    deleteVersionButton.addEventListener("click", openDeleteVersionDialog);
   }
   if (addChannelButton) {
     addChannelButton.addEventListener("click", () => {
@@ -296,6 +312,9 @@ function renderDetail() {
         state.editor = { mode: "copy-entry", channelName: channel, entryVersion: version };
       } else if (action === "delete-entry") {
         deleteEntry(channel, version);
+        return;
+      } else if (action === "delete-channel") {
+        openDeleteChannelDialog(channel);
         return;
       }
       renderEditor();
@@ -483,6 +502,72 @@ function deleteEntry(channelName, entryVersion) {
   }
 }
 
+function openDeleteChannelDialog(channelName) {
+  const entries = state.versionDoc?.channels?.[channelName] || [];
+  elements.deleteChannelDialog.dataset.channel = channelName;
+  elements.deleteChannelMessage.innerHTML = `
+    即将删除渠道 <code>${escapeHtml(channelName)}</code>，以及该渠道下的 ${entries.length} 个版本条目。
+  `;
+  elements.deleteChannelDialog.showModal();
+}
+
+function confirmDeleteChannel() {
+  const channelName = elements.deleteChannelDialog.dataset.channel || "";
+  if (!channelName || !state.versionDoc?.channels?.[channelName]) {
+    elements.deleteChannelDialog.close();
+    return;
+  }
+
+  delete state.versionDoc.channels[channelName];
+  setDirty(true);
+  if (state.editor.channelName === channelName) {
+    resetEditor();
+  } else {
+    renderEditor();
+  }
+  renderDetail();
+  elements.deleteChannelDialog.close();
+  showToast(`已删除渠道 ${channelName}，保存后生效`, "success");
+}
+
+function openDeleteVersionDialog() {
+  if (!state.versionDoc || !state.selectedVersion) return;
+  if (state.dirty) {
+    showToast("当前版本有未保存修改，请先保存或刷新后再删除版本。", "error");
+    return;
+  }
+
+  const channelCount = Object.keys(state.versionDoc.channels || {}).length;
+  const entryCount = Object.values(state.versionDoc.channels || {}).reduce((count, items) => count + items.length, 0);
+  elements.deleteVersionDialog.dataset.version = state.selectedVersion;
+  elements.deleteVersionMessage.innerHTML = `
+    即将删除 OneSDK <code>${escapeHtml(state.selectedVersion)}</code>，
+    包含 ${channelCount} 个渠道、${entryCount} 个渠道版本条目。
+  `;
+  elements.deleteVersionDialog.showModal();
+}
+
+async function confirmDeleteVersion() {
+  const version = elements.deleteVersionDialog.dataset.version || "";
+  if (!version) {
+    elements.deleteVersionDialog.close();
+    return;
+  }
+
+  try {
+    await apiFetch(`/api/version/${encodeURIComponent(version)}`, { method: "DELETE" });
+    elements.deleteVersionDialog.close();
+    state.selectedVersion = null;
+    state.versionDoc = null;
+    state.originalDoc = null;
+    state.editor = { mode: "empty", channelName: "", entryVersion: "" };
+    showToast(`已删除 OneSDK ${version}`, "success");
+    await loadIndex();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
 function buildChangeSummary() {
   if (!state.originalDoc || !state.versionDoc) {
     return ["当前没有待保存修改"];
@@ -499,6 +584,12 @@ function buildChangeSummary() {
   for (const channelName of Object.keys(currentChannels)) {
     if (!Object.prototype.hasOwnProperty.call(originalChannels, channelName)) {
       changes.push(`新增渠道 ${channelName}`);
+    }
+  }
+
+  for (const channelName of Object.keys(originalChannels)) {
+    if (!Object.prototype.hasOwnProperty.call(currentChannels, channelName)) {
+      changes.push(`删除渠道 ${channelName}`);
     }
   }
 
@@ -1001,6 +1092,10 @@ function bindGlobalEvents() {
   elements.newVersionForm.addEventListener("submit", createVersionFromDialog);
   elements.newVersionCancel.addEventListener("click", () => elements.newVersionDialog.close());
   elements.changesClose.addEventListener("click", () => elements.changesDialog.close());
+  elements.deleteChannelCancel.addEventListener("click", () => elements.deleteChannelDialog.close());
+  elements.deleteChannelSubmit.addEventListener("click", confirmDeleteChannel);
+  elements.deleteVersionCancel.addEventListener("click", () => elements.deleteVersionDialog.close());
+  elements.deleteVersionSubmit.addEventListener("click", confirmDeleteVersion);
   elements.publishClose.addEventListener("click", () => {
     elements.publishDialog.close();
     renderFlow(state.selectedVersion ? 3 : 1);

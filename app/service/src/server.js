@@ -230,6 +230,9 @@ function validatePublishableMetadataFiles(files) {
     if (!file.path.startsWith("mappings/versions/") || !file.path.endsWith(".json")) {
       continue;
     }
+    if (String(file.status || "").includes("D")) {
+      continue;
+    }
     const version = path.basename(file.path, ".json");
     const versionJson = loadVersion(version);
     validateVersionDocument(versionJson, version, { allowEmptyChannels: false });
@@ -469,6 +472,38 @@ function saveVersion(version, input) {
   return normalized;
 }
 
+function deleteVersion(version) {
+  if (!isVersionString(version)) {
+    throw new Error("OneSDK 版本号必须为 x.y.z");
+  }
+
+  const currentIndex = loadIndex();
+  const existing = currentIndex.versions.find((item) => item.version === version);
+  if (!existing) {
+    const error = new Error(`未找到 OneSDK 版本: ${version}`);
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const filePath = versionFilePath(version);
+  const nextIndex = {
+    $schema: "../schemas/index.schema.json",
+    versions: currentIndex.versions
+      .filter((item) => item.version !== version)
+      .sort((left, right) => compareVersions(left.version, right.version))
+  };
+  validateIndexDocument(nextIndex);
+  writeJson(INDEX_FILE, nextIndex);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+
+  return {
+    deleted_version: version,
+    deleted_file: `mappings/versions/${version}.json`
+  };
+}
+
 function collectRequestBody(req) {
   return new Promise((resolve, reject) => {
     let buffer = "";
@@ -544,6 +579,12 @@ async function handleApi(req, res, pathname) {
       const body = await collectRequestBody(req);
       const versionJson = saveVersion(version, body);
       sendJson(res, 200, versionJson);
+      return;
+    }
+
+    if (req.method === "DELETE" && pathname.startsWith("/api/version/")) {
+      const version = decodeURIComponent(pathname.replace("/api/version/", ""));
+      sendJson(res, 200, deleteVersion(version));
       return;
     }
 

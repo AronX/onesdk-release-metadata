@@ -91,6 +91,30 @@
       </div>
     </dialog>
 
+    <dialog id="delete-channel-dialog" class="dialog-shell">
+      <div class="dialog-form">
+        <h3>确认删除渠道</h3>
+        <p id="delete-channel-message" class="dialog-description"></p>
+        <p class="error-text">删除后需要点击“保存”才会写入版本文件。</p>
+        <div class="dialog-actions">
+          <button id="delete-channel-cancel">取消</button>
+          <button id="delete-channel-submit" class="danger">确认删除</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="delete-version-dialog" class="dialog-shell">
+      <div class="dialog-form">
+        <h3>确认删除 OneSDK 版本</h3>
+        <p id="delete-version-message" class="dialog-description"></p>
+        <p class="error-text">这个操作会立即更新 <code>mappings/index.json</code> 并删除对应版本文件。</p>
+        <div class="dialog-actions">
+          <button id="delete-version-cancel">取消</button>
+          <button id="delete-version-submit" class="danger">确认删除</button>
+        </div>
+      </div>
+    </dialog>
+
     <dialog id="publish-dialog" class="dialog-shell dialog-shell-wide">
       <div class="dialog-form dialog-wide">
         <h3>发布确认</h3>

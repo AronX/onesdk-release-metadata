@@ -248,6 +248,13 @@ button:disabled {
   margin: 0;
 }
 
+.channel-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .empty-state {
   padding: 36px 24px;
   color: var(--muted);
