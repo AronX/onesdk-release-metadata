@@ -14,6 +14,8 @@ ENV PORT=3210
 
 COPY docker-entrypoint.sh /usr/local/bin/onesdk-metadata-entrypoint
 COPY app/service/package*.json ./
+RUN npm ci --omit=dev
+
 COPY app/service/src ./src
 COPY app/web /workspace/app/web
 COPY mappings /workspace/mappings

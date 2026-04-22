@@ -44,10 +44,12 @@ const elements = {
   publishGitStatus: document.getElementById("publish-git-status"),
   publishDiffFiles: document.getElementById("publish-diff-files"),
   publishGitDiff: document.getElementById("publish-git-diff"),
+  ossSyncStatus: document.getElementById("oss-sync-status"),
   commitMessageInput: document.getElementById("commit-message-input"),
   publishError: document.getElementById("publish-error"),
   publishClose: document.getElementById("publish-close"),
   discardMappingsButton: document.getElementById("discard-mappings-button"),
+  ossSyncButton: document.getElementById("oss-sync-button"),
   commitButton: document.getElementById("commit-button"),
   pushButton: document.getElementById("push-button"),
   discardConfirmDialog: document.getElementById("discard-confirm-dialog"),
@@ -676,6 +678,83 @@ async function loadGitState() {
   return { status, diff };
 }
 
+async function loadOssStatus() {
+  return apiFetch("/api/oss/status");
+}
+
+function renderOssSyncStatus(payload) {
+  if (!payload) {
+    elements.ossSyncStatus.innerHTML = '<div class="changes-summary-card"><h5>等待同步</h5><p>提交 commit 成功后会自动同步 metadata 到阿里云 OSS。</p></div>';
+    elements.ossSyncButton.disabled = true;
+    return;
+  }
+
+  if (payload.error) {
+    elements.ossSyncStatus.innerHTML = `
+      <div class="changes-summary-card error-card">
+        <h5>OSS 同步失败</h5>
+        <p>${escapeHtml(payload.error)}</p>
+      </div>
+    `;
+    elements.ossSyncButton.disabled = false;
+    return;
+  }
+
+  if (payload.syncing) {
+    elements.ossSyncStatus.innerHTML = '<div class="changes-summary-card"><h5>OSS 同步中</h5><p>正在上传 metadata 文件到阿里云 OSS，请稍候。</p></div>';
+    elements.ossSyncButton.disabled = true;
+    return;
+  }
+
+  if (payload.configured === false) {
+    elements.ossSyncStatus.innerHTML = `
+      <div class="changes-summary-card">
+        <h5>OSS 未配置</h5>
+        <p>请在 Docker 环境变量中配置阿里云 OSS AK/SK 后再同步。</p>
+        <p><code>${escapeHtml(payload.bucket || "-")}/${escapeHtml(payload.prefix || "-")}</code></p>
+      </div>
+    `;
+    elements.ossSyncButton.disabled = true;
+    return;
+  }
+
+  if (typeof payload.uploaded_count === "number") {
+    elements.ossSyncStatus.innerHTML = `
+      <div class="changes-summary-card">
+        <h5>OSS 已同步</h5>
+        <p>已上传 ${payload.uploaded_count} 个 metadata 文件到 <code>${escapeHtml(payload.bucket)}/${escapeHtml(payload.prefix)}</code>。</p>
+        <p>读取入口：<code>${escapeHtml(payload.base_url)}/index.json</code></p>
+      </div>
+    `;
+    elements.ossSyncButton.disabled = false;
+    return;
+  }
+
+  elements.ossSyncStatus.innerHTML = `
+    <div class="changes-summary-card">
+      <h5>OSS 已配置</h5>
+      <p>目标目录：<code>${escapeHtml(payload.bucket)}/${escapeHtml(payload.prefix)}</code></p>
+      <p>提交 commit 成功后会自动同步，也可以在需要时手动重试。</p>
+    </div>
+  `;
+  elements.ossSyncButton.disabled = false;
+}
+
+async function syncOssMetadata() {
+  elements.ossSyncButton.disabled = true;
+  renderOssSyncStatus({ syncing: true });
+  try {
+    const result = await apiFetch("/api/oss/sync", { method: "POST" });
+    renderOssSyncStatus(result);
+    showToast(`OSS 已同步 ${result.uploaded_count} 个文件`, "success");
+    return result;
+  } catch (error) {
+    renderOssSyncStatus({ error: error.message });
+    showToast(`OSS 同步失败：${error.message}`, "error");
+    return null;
+  }
+}
+
 function defaultCommitMessage() {
   return `chore: update onesdk metadata for ${state.selectedVersion}`;
 }
@@ -954,9 +1033,10 @@ async function openPublishDialog() {
     renderFlow(4);
     elements.publishError.classList.add("hidden");
     const changes = buildChangeSummary();
-    const gitState = await loadGitState();
+    const [gitState, ossStatus] = await Promise.all([loadGitState(), loadOssStatus().catch((error) => ({ error: error.message }))]);
     elements.publishChangesSummary.innerHTML = `<ul>${changes.map((item) => `<li>${item}</li>`).join("")}</ul>`;
     elements.publishGitStatus.innerHTML = renderPublishGitStatus(gitState.status);
+    renderOssSyncStatus(ossStatus);
     updatePublishButtons(gitState.status);
     renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
     if (!elements.commitMessageInput.value.trim()) {
@@ -1022,6 +1102,7 @@ async function runCommit() {
       </div>
     `;
     renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
+    await syncOssMetadata();
     return true;
   } catch (error) {
     elements.publishError.textContent = `提交失败：${error.message}`;
@@ -1116,6 +1197,7 @@ function bindGlobalEvents() {
     elements.discardConfirmDialog.close();
   });
   elements.discardConfirmSubmit.addEventListener("click", discardMappingsChanges);
+  elements.ossSyncButton.addEventListener("click", syncOssMetadata);
   elements.commitButton.addEventListener("click", runCommit);
   elements.pushButton.addEventListener("click", runPush);
 

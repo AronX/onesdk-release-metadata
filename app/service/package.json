@@ -5,5 +5,8 @@
   "description": "Lightweight local service for OneSDK metadata visual admin",
   "scripts": {
     "start": "node src/server.js"
+  },
+  "dependencies": {
+    "ali-oss": "^6.23.0"
   }
 }

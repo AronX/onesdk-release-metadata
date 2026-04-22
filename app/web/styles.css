@@ -477,6 +477,15 @@ th {
   line-height: 1.6;
 }
 
+.changes-summary-card.error-card {
+  border-color: #e6b6b1;
+  background: #fff7f6;
+}
+
+.oss-sync-status code {
+  word-break: break-all;
+}
+
 .publish-layout {
   display: grid;
   gap: 16px;

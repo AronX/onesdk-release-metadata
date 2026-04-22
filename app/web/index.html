@@ -136,6 +136,10 @@
             </div>
           </section>
           <section>
+            <h4>OSS 同步</h4>
+            <div id="oss-sync-status" class="oss-sync-status"></div>
+          </section>
+          <section>
             <h4>Commit Message</h4>
             <textarea id="commit-message-input" class="commit-message" placeholder="例如：chore: update onesdk metadata for 1.36.0"></textarea>
           </section>
@@ -144,7 +148,8 @@
         <div class="dialog-actions">
           <button id="publish-close">返回继续编辑</button>
           <button id="discard-mappings-button" class="danger-ghost">丢弃 mappings 变更</button>
-          <button id="commit-button">提交 commit</button>
+          <button id="oss-sync-button">重试同步 OSS</button>
+          <button id="commit-button">提交</button>
           <button id="push-button" class="primary">推送</button>
         </div>
       </div>

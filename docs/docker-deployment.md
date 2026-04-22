@@ -59,6 +59,40 @@ export GIT_USER_EMAIL="onesdk-release@example.com"
 docker compose up -d --build
 ```
 
+## 配置阿里云 OSS 同步
+
+网页点击“提交 commit”成功后，会自动把 metadata 同步到阿里云 OSS：
+
+```text
+oss://pkgdl-game-apk/tool/iOS-OneSDK-Metadata/
+```
+
+同步范围被限制为：
+
+- `mappings/index.json` -> `tool/iOS-OneSDK-Metadata/index.json`
+- `mappings/versions/*.json` -> `tool/iOS-OneSDK-Metadata/versions/*.json`
+
+不会操作这个目录以外的 OSS 对象，也不会执行 OSS 删除。
+
+在内部 Mac 的仓库根目录创建 `.env`：
+
+```bash
+ALIYUN_OSS_REGION=oss-cn-shanghai
+ALIYUN_OSS_BUCKET=pkgdl-game-apk
+ALIYUN_OSS_PREFIX=tool/iOS-OneSDK-Metadata
+ALIYUN_OSS_ACCESS_KEY_ID=替换为专用AK
+ALIYUN_OSS_ACCESS_KEY_SECRET=替换为专用SK
+```
+
+`.env` 已被 `.gitignore` 忽略，不要提交真实 AK/SK。建议使用只允许访问 `pkgdl-game-apk/tool/iOS-OneSDK-Metadata/*` 的 RAM 子账号。
+
+国内读取地址：
+
+```text
+https://pkgdl-game-apk.oss-cn-shanghai.aliyuncs.com/tool/iOS-OneSDK-Metadata/index.json
+https://pkgdl-game-apk.oss-cn-shanghai.aliyuncs.com/tool/iOS-OneSDK-Metadata/versions/1.36.0.json
+```
+
 ## 如果需要在网页里 push
 
 网页里的 commit 不需要额外认证；push 需要容器能访问 Git 远端。
@@ -126,5 +160,7 @@ curl http://127.0.0.1:3210/api/health
 
 - “保存”会直接写入宿主机仓库的 `mappings/index.json` 和 `mappings/versions/*.json`
 - “提交 commit”只会提交 `mappings/index.json` 和 `mappings/versions`
+- “提交 commit”成功后会同步 metadata 到 `tool/iOS-OneSDK-Metadata/`
+- “重试同步 OSS”只会上传当前 metadata 文件，不会删除 OSS 对象
 - “丢弃 mappings 变更”只会回退 `mappings/` 目录下的改动
 - 不要把服务直接暴露到公网；当前后台没有登录鉴权

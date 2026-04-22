@@ -9,8 +9,14 @@ services:
       PORT: "3210"
       GIT_USER_NAME: "${GIT_USER_NAME:-OneSDK Metadata Admin}"
       GIT_USER_EMAIL: "${GIT_USER_EMAIL:-onesdk-metadata-admin@internal.local}"
+      ALIYUN_OSS_REGION: "${ALIYUN_OSS_REGION:-oss-cn-shanghai}"
+      ALIYUN_OSS_BUCKET: "${ALIYUN_OSS_BUCKET:-pkgdl-game-apk}"
+      ALIYUN_OSS_PREFIX: "${ALIYUN_OSS_PREFIX:-tool/iOS-OneSDK-Metadata}"
+      ALIYUN_OSS_ACCESS_KEY_ID: "${ALIYUN_OSS_ACCESS_KEY_ID:-}"
+      ALIYUN_OSS_ACCESS_KEY_SECRET: "${ALIYUN_OSS_ACCESS_KEY_SECRET:-}"
     ports:
       - "3210:3210"
     volumes:
       - .:/workspace
+      - /workspace/app/service/node_modules
     restart: unless-stopped

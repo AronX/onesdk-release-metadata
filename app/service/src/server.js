@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
 const { execFileSync, execSync } = require("child_process");
+const OSS = require("ali-oss");
 
 const PORT = Number(process.env.PORT || 3210);
 const SERVICE_ROOT = path.resolve(__dirname, "..");
@@ -12,6 +13,9 @@ const MAPPINGS_ROOT = path.resolve(REPO_ROOT, "mappings");
 const VERSIONS_ROOT = path.resolve(MAPPINGS_ROOT, "versions");
 const INDEX_FILE = path.resolve(MAPPINGS_ROOT, "index.json");
 const PUBLISH_TARGETS = ["mappings/index.json", "mappings/versions"];
+const DEFAULT_OSS_REGION = "oss-cn-shanghai";
+const DEFAULT_OSS_BUCKET = "pkgdl-game-apk";
+const DEFAULT_OSS_PREFIX = "tool/iOS-OneSDK-Metadata";
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -374,6 +378,126 @@ function gitPush() {
   };
 }
 
+function normalizeOssPrefix(value) {
+  return String(value || DEFAULT_OSS_PREFIX)
+    .trim()
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+}
+
+function ossConfig() {
+  const accessKeyId = String(process.env.ALIYUN_OSS_ACCESS_KEY_ID || "").trim();
+  const accessKeySecret = String(process.env.ALIYUN_OSS_ACCESS_KEY_SECRET || "").trim();
+  const region = String(process.env.ALIYUN_OSS_REGION || DEFAULT_OSS_REGION).trim();
+  const bucket = String(process.env.ALIYUN_OSS_BUCKET || DEFAULT_OSS_BUCKET).trim();
+  const prefix = normalizeOssPrefix(process.env.ALIYUN_OSS_PREFIX);
+
+  return {
+    configured: Boolean(accessKeyId && accessKeySecret && region && bucket && prefix),
+    region,
+    bucket,
+    prefix,
+    accessKeyId,
+    accessKeySecret
+  };
+}
+
+function publicOssConfig(config = ossConfig()) {
+  return {
+    configured: config.configured,
+    region: config.region,
+    bucket: config.bucket,
+    prefix: config.prefix,
+    base_url: `https://${config.bucket}.${config.region}.aliyuncs.com/${config.prefix}`
+  };
+}
+
+function createOssClient(config) {
+  if (!config.configured) {
+    const error = new Error("未配置阿里云 OSS AK/SK，请检查环境变量");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return new OSS({
+    region: config.region,
+    bucket: config.bucket,
+    accessKeyId: config.accessKeyId,
+    accessKeySecret: config.accessKeySecret,
+    secure: true
+  });
+}
+
+function assertOssRelativePath(relativePath) {
+  if (relativePath === "index.json") {
+    return;
+  }
+  if (/^versions\/[0-9]+\.[0-9]+\.[0-9]+\.json$/.test(relativePath)) {
+    return;
+  }
+  throw new Error(`非法 OSS metadata 相对路径: ${relativePath}`);
+}
+
+function ossObjectKey(relativePath, prefix) {
+  assertOssRelativePath(relativePath);
+  const key = `${prefix}/${relativePath}`;
+  if (!key.startsWith(`${prefix}/`)) {
+    throw new Error(`OSS object key 越界: ${key}`);
+  }
+  return key;
+}
+
+function metadataFilesForOssSync() {
+  const indexJson = loadIndex();
+  validateIndexDocument(indexJson);
+
+  const files = [
+    {
+      relativePath: "index.json",
+      filePath: INDEX_FILE
+    }
+  ];
+
+  for (const item of indexJson.versions) {
+    const versionJson = loadVersion(item.version);
+    validateVersionDocument(versionJson, item.version, { allowEmptyChannels: false });
+    files.push({
+      relativePath: `versions/${item.version}.json`,
+      filePath: versionFilePath(item.version)
+    });
+  }
+
+  return files;
+}
+
+async function syncMetadataToOss() {
+  const config = ossConfig();
+  const client = createOssClient(config);
+  const files = metadataFilesForOssSync();
+  const uploaded = [];
+
+  for (const file of files) {
+    const key = ossObjectKey(file.relativePath, config.prefix);
+    await client.put(key, file.filePath, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-cache"
+      }
+    });
+    uploaded.push({
+      path: file.relativePath,
+      object_key: key,
+      url: `https://${config.bucket}.${config.region}.aliyuncs.com/${key}`
+    });
+  }
+
+  return {
+    ...publicOssConfig(config),
+    uploaded_count: uploaded.length,
+    uploaded
+  };
+}
+
 function discardMappingsChanges() {
   runGit(["restore", "--source=HEAD", "--staged", "--worktree", "--", ...PUBLISH_TARGETS]);
   runGitAllowing(["clean", "-fd", "--", "mappings"], [0, 1]);
@@ -606,6 +730,16 @@ async function handleApi(req, res, pathname) {
 
     if (req.method === "POST" && pathname === "/api/git/push") {
       sendJson(res, 200, gitPush());
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/api/oss/status") {
+      sendJson(res, 200, publicOssConfig());
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/api/oss/sync") {
+      sendJson(res, 200, await syncMetadataToOss());
       return;
     }
 
