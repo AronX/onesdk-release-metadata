@@ -10,9 +10,27 @@
         "md5": "381f41b8487375815d2eb08d47ff2a37",
         "release_date": "2026-04-22",
         "release_note": [
-          "1、新增翻译功能",
-          "2、设置注册界面键盘弹出时上移高度",
-          "3、新增 kakao 分享能力"
+          "游戏内新增接入内容更新：",
+          "1、支持将图片分享至 Kakao",
+          "2、新增用户翻译功能开关查询接口",
+          "3、新增用户翻译能力",
+          "SDK内部功能更新：",
+          "1、优化注册界面在键盘弹出时的表现"
+        ]
+      }
+    ],
+    "bilibili": [
+      {
+        "version": "4.4.0",
+        "zip_url": "https://pkgdl-game-apk.oss-cn-shanghai.aliyuncs.com/tool/GlobalSDK/bilibili/bilibili_V4.4.0_20260422161515.zip",
+        "md5": "762f91e2fc8d9dce50163433978c368b",
+        "release_date": "2026-04-22",
+        "release_note": [
+          "游戏内新增接入内容更新：",
+          "1、升级 Aihelp SDK，解决因游戏全量删除 NSUserDefaults 共享数据导致的红点异常问题。",
+          "2、升级 Appsflyer SDK 至 6.17.7",
+          "SDK内部功能更新：",
+          "1、网页支付信息新增编码处理"
         ]
       }
     ]
