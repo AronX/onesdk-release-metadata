@@ -3,17 +3,16 @@
   "version": "1.36.0",
   "release_date": "2026-04-01",
   "channels": {
-    "bilibili": [
+    "lumo": [
       {
-        "version": "4.4.0",
-        "zip_url": "https://pkgdl.biligame.net/tool/ONESDK/ONE-SDK-v1.33.0-%E6%B5%B7%E5%A4%96lumo-20260327172316.zip",
-        "md5": "cdbfac868e8473942fba640899f8e78c",
-        "release_date": "2026-04-08",
+        "version": "4.13.0",
+        "zip_url": "https://pkgdl-game-apk.oss-cn-shanghai.aliyuncs.com/tool/GlobalSDK/lumo/lumo_V4.13.0_20260422083522.zip",
+        "md5": "381f41b8487375815d2eb08d47ff2a37",
+        "release_date": "2026-04-22",
         "release_note": [
-          "更新 Aihelp SDK",
-          "优化红点未读消息逻辑",
-          "添加网页编码",
-          "测试"
+          "1、新增翻译功能",
+          "2、设置注册界面键盘弹出时上移高度",
+          "3、新增 kakao 分享能力"
         ]
       }
     ]
