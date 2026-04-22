@@ -1,0 +1,16 @@
+services:
+  metadata-admin:
+    build:
+      context: .
+    image: onesdk-release-metadata-admin:latest
+    container_name: onesdk-release-metadata-admin
+    working_dir: /workspace/app/service
+    environment:
+      PORT: "3210"
+      GIT_USER_NAME: "${GIT_USER_NAME:-OneSDK Metadata Admin}"
+      GIT_USER_EMAIL: "${GIT_USER_EMAIL:-onesdk-metadata-admin@internal.local}"
+    ports:
+      - "3210:3210"
+    volumes:
+      - .:/workspace
+    restart: unless-stopped

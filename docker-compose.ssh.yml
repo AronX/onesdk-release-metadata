@@ -1,0 +1,6 @@
+services:
+  metadata-admin:
+    environment:
+      GIT_SSH_COMMAND: "ssh -o IdentitiesOnly=yes"
+    volumes:
+      - ${HOME}/.ssh:/root/.ssh:ro

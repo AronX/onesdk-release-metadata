@@ -7,6 +7,24 @@
 
 ## 启动方式
 
+### Docker Compose
+
+推荐内部 Mac 机器使用 Docker Compose 部署：
+
+```bash
+docker compose up -d --build
+```
+
+默认访问地址：
+
+```text
+http://127.0.0.1:3210
+```
+
+详细说明见仓库根目录的 `docs/docker-deployment.md`。
+
+### 本地 Node
+
 ```bash
 cd app/service
 npm start

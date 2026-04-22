@@ -75,6 +75,23 @@ https://gitee.com/{owner}/onesdk-release-metadata/raw/main/mappings/index.json
 ## 设计说明
 
 - [`docs/versioned-layout-proposal.md`](/Users/chengzixu/Documents/bilibili-code/OneSDK-Release-Metadata/docs/versioned-layout-proposal.md)
+- [`docs/docker-deployment.md`](/Users/chengzixu/Documents/bilibili-code/OneSDK-Release-Metadata/docs/docker-deployment.md)
+
+## Docker 部署
+
+内部 Mac 机器部署可直接使用 Docker Compose：
+
+```bash
+docker compose up -d --build
+```
+
+默认访问：
+
+```text
+http://<内部Mac机器IP>:3210
+```
+
+完整部署说明见 [`docs/docker-deployment.md`](/Users/chengzixu/Documents/bilibili-code/OneSDK-Release-Metadata/docs/docker-deployment.md)。
 
 ## 双仓库同步
 
