@@ -1,6 +1,6 @@
 services:
   metadata-admin:
     environment:
-      GIT_SSH_COMMAND: "ssh -o IdentitiesOnly=yes"
+      GIT_SSH_COMMAND: "ssh -F /dev/null -i /root/.ssh/xc_github -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts"
     volumes:
       - ${HOME}/.ssh:/root/.ssh:ro
