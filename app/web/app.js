@@ -573,7 +573,7 @@ async function openChangesDialog() {
   try {
     const gitState = await loadGitState();
     const publishableFiles = Array.isArray(gitState.status.publishable_files) ? gitState.status.publishable_files : [];
-    elements.changesSummary.innerHTML = renderChangesSummaryHtml(changes, publishableFiles);
+    elements.changesSummary.innerHTML = renderChangesSummaryHtml(changes, publishableFiles, gitState.status);
   } catch (_) {
     elements.changesSummary.innerHTML = renderChangesSummaryHtml(changes, []);
   }
@@ -626,8 +626,21 @@ function renderFileList(items, emptyText, withStatus = true) {
   `;
 }
 
-function renderChangesSummaryHtml(changes, publishableFiles) {
+function renderCommitList(items, emptyText) {
+  if (!items.length) {
+    return `<p>${emptyText}</p>`;
+  }
+  return `
+    <ul class="publish-file-list">
+      ${items.map((item) => `<li><code>${escapeHtml(item)}</code></li>`).join("")}
+    </ul>
+  `;
+}
+
+function renderChangesSummaryHtml(changes, publishableFiles, status = {}) {
   const hasUnsavedChanges = changes.length && !(changes.length === 1 && changes[0] === "当前没有待保存修改");
+  const aheadCount = Number(status.ahead_count || 0);
+  const unpushedCommits = Array.isArray(status.unpushed_commits) ? status.unpushed_commits : [];
   const unsavedHtml = hasUnsavedChanges
     ? `<ul>${changes.map((item) => `<li>${item}</li>`).join("")}</ul>`
     : `
@@ -652,7 +665,17 @@ function renderChangesSummaryHtml(changes, publishableFiles) {
       </div>
     `;
 
-  return `${unsavedHtml}${publishableHtml}`;
+  const unpushedHtml = aheadCount
+    ? `
+      <div class="changes-summary-card">
+        <h5>当前有待推送 commit</h5>
+        <p>本地分支领先远端 ${aheadCount} 个 commit，可以进入发布后直接执行 push。</p>
+        ${renderCommitList(unpushedCommits, "当前没有可展示的 commit 摘要。")}
+      </div>
+    `
+    : "";
+
+  return `${unsavedHtml}${publishableHtml}${unpushedHtml}`;
 }
 
 function escapeHtml(value) {
@@ -752,24 +775,38 @@ function renderDiffBrowser(files) {
 
 function renderPublishGitStatus(status) {
   const publishableFiles = Array.isArray(status.publishable_files) ? status.publishable_files : [];
+  const unpushedCommits = Array.isArray(status.unpushed_commits) ? status.unpushed_commits : [];
   const branch = status.branch || "-";
+  const upstream = status.upstream || "未设置";
+  const aheadCount = Number(status.ahead_count || 0);
+  const behindCount = Number(status.behind_count || 0);
   const clean = Boolean(status.clean);
   const blockedCount = Array.isArray(status.blocked_files) ? status.blocked_files.length : 0;
+  const hasUnpushedCommits = aheadCount > 0;
 
   return `
     <div class="git-explainer">
       <strong>这一步在做什么</strong>
-      <div>发布只会提交 metadata 文件，也就是 <code>mappings/index.json</code> 和 <code>mappings/versions/*.json</code>。</div>
+      <div>发布分两步：先把 metadata 改动提交成本地 commit，再把本地领先远端的 commit 推送出去。</div>
       ${
         blockedCount
           ? `<div>当前工作区里还有 ${blockedCount} 个其它改动，它们会保留在本地，不会进入这次 commit。</div>`
           : `<div>当前工作区没有额外噪音改动，这次发布会聚焦在 metadata 文件本身。</div>`
+      }
+      ${
+        hasUnpushedCommits
+          ? `<div>当前本地分支已经领先远端 ${aheadCount} 个 commit，即使没有新的文件 diff，也可以继续执行 push。</div>`
+          : `<div>当前没有检测到待推送的本地 commit。</div>`
       }
     </div>
     <div class="git-status-grid">
       <div class="git-status-card">
         <div class="git-status-label">当前分支</div>
         <div class="git-status-value text">${branch}</div>
+      </div>
+      <div class="git-status-card">
+        <div class="git-status-label">远端跟踪</div>
+        <div class="git-status-value text">${upstream}</div>
       </div>
       <div class="git-status-card">
         <div class="git-status-label">工作区状态</div>
@@ -779,6 +816,14 @@ function renderPublishGitStatus(status) {
         <div class="git-status-label">本次会提交</div>
         <div class="git-status-value">${publishableFiles.length}</div>
       </div>
+      <div class="git-status-card">
+        <div class="git-status-label">本地领先远端</div>
+        <div class="git-status-value">${aheadCount}</div>
+      </div>
+      <div class="git-status-card">
+        <div class="git-status-label">远端领先本地</div>
+        <div class="git-status-value">${behindCount}</div>
+      </div>
     </div>
     <div class="publish-file-group">
       <div class="publish-file-card allowed">
@@ -786,8 +831,26 @@ function renderPublishGitStatus(status) {
         <p>这些文件会被 <code>git add</code> 并进入这次 metadata 发布 commit。</p>
         ${renderFileList(publishableFiles, "当前没有可提交的 metadata 文件。")}
       </div>
+      <div class="publish-file-card allowed">
+        <h5>待推送的本地 commit</h5>
+        <p>如果上次 commit 成功但 push 失败，这里会显示还没到远端的 commit。</p>
+        ${renderCommitList(unpushedCommits, "当前没有待推送的本地 commit。")}
+      </div>
     </div>
   `;
+}
+
+function updatePublishButtons(status) {
+  const publishableFiles = Array.isArray(status.publishable_files) ? status.publishable_files : [];
+  const hasPublishableFiles = publishableFiles.length > 0;
+  const hasUnpushedCommits = Number(status.ahead_count || 0) > 0;
+  elements.commitButton.disabled = !hasPublishableFiles;
+  elements.pushButton.disabled = !hasPublishableFiles && !hasUnpushedCommits;
+  elements.pushButton.textContent = hasPublishableFiles
+    ? "提交并推送"
+    : hasUnpushedCommits
+      ? "推送待发布 commit"
+      : "提交并推送";
 }
 
 async function openPublishDialog() {
@@ -802,6 +865,7 @@ async function openPublishDialog() {
     const gitState = await loadGitState();
     elements.publishChangesSummary.innerHTML = `<ul>${changes.map((item) => `<li>${item}</li>`).join("")}</ul>`;
     elements.publishGitStatus.innerHTML = renderPublishGitStatus(gitState.status);
+    updatePublishButtons(gitState.status);
     renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
     if (!elements.commitMessageInput.value.trim()) {
       elements.commitMessageInput.value = defaultCommitMessage();
@@ -824,10 +888,11 @@ async function runCommit() {
     renderFlow(5);
     showToast(`已创建 commit ${result.commit}`, "success");
     const gitState = await loadGitState();
+    updatePublishButtons(gitState.status);
     elements.publishGitStatus.innerHTML = `
       <div class="git-explainer">
         <strong>Commit 已完成</strong>
-        <div>当前 metadata 改动已经写入本地 git 提交。下一步如果你确认没问题，就可以继续执行 push。</div>
+        <div>当前 metadata 改动已经写入本地 git 提交。下一步如果你确认没问题，就可以继续执行 push；如果 push 失败，重新打开发布窗口也会保留待推送状态。</div>
       </div>
       <div class="git-status-grid">
         <div class="git-status-card">
@@ -846,6 +911,10 @@ async function runCommit() {
           <div class="git-status-label">提交文件数</div>
           <div class="git-status-value">${(result.published_files || []).length}</div>
         </div>
+        <div class="git-status-card">
+          <div class="git-status-label">本地领先远端</div>
+          <div class="git-status-value">${gitState.status.ahead_count || 0}</div>
+        </div>
       </div>
       <div class="publish-file-card allowed">
         <h5>刚刚提交的文件</h5>
@@ -853,6 +922,10 @@ async function runCommit() {
           (result.published_files || []).map((path) => ({ status: "M", path })),
           "这次没有提交任何 metadata 文件。"
         )}
+      </div>
+      <div class="publish-file-card allowed">
+        <h5>待推送的本地 commit</h5>
+        ${renderCommitList(gitState.status.unpushed_commits || [], "当前没有待推送的本地 commit。")}
       </div>
     `;
     renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
@@ -867,8 +940,19 @@ async function runCommit() {
 
 async function runPush() {
   try {
-    const committed = await runCommit();
-    if (!committed) return;
+    let gitState = await loadGitState();
+    const publishableFiles = Array.isArray(gitState.status.publishable_files) ? gitState.status.publishable_files : [];
+    const hasPublishableFiles = publishableFiles.length > 0;
+    const hasUnpushedCommits = Number(gitState.status.ahead_count || 0) > 0;
+
+    if (hasPublishableFiles) {
+      const committed = await runCommit();
+      if (!committed) return;
+      gitState = await loadGitState();
+    } else if (!hasUnpushedCommits) {
+      throw new Error("当前没有可提交的 metadata 改动，也没有待推送的本地 commit");
+    }
+
     const result = await apiFetch("/api/git/push", { method: "POST" });
     renderFlow(5);
     showToast(`已推送到 origin/${result.branch}`, "success");
@@ -877,6 +961,12 @@ async function runPush() {
   } catch (error) {
     elements.publishError.textContent = `推送失败：${error.message}`;
     elements.publishError.classList.remove("hidden");
+    const gitState = await loadGitState().catch(() => null);
+    if (gitState) {
+      elements.publishGitStatus.innerHTML = renderPublishGitStatus(gitState.status);
+      updatePublishButtons(gitState.status);
+      renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
+    }
     showToast(error.message, "error");
   }
 }

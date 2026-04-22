@@ -263,6 +263,39 @@ function currentBranchName() {
   return runGit(["rev-parse", "--abbrev-ref", "HEAD"]).trim();
 }
 
+function gitTrackingSummary() {
+  const upstream = runGitAllowing(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], [0, 128])
+    .trim();
+  if (!upstream) {
+    return {
+      upstream: "",
+      ahead_count: 0,
+      behind_count: 0,
+      unpushed_commits: []
+    };
+  }
+
+  const counts = runGitAllowing(["rev-list", "--left-right", "--count", `HEAD...${upstream}`], [0, 128])
+    .trim()
+    .split(/\s+/)
+    .map((item) => Number(item) || 0);
+  const aheadCount = counts[0] || 0;
+  const behindCount = counts[1] || 0;
+  const unpushedCommits = aheadCount
+    ? runGitAllowing(["log", "--oneline", "--max-count=5", `${upstream}..HEAD`], [0, 128])
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : [];
+
+  return {
+    upstream,
+    ahead_count: aheadCount,
+    behind_count: behindCount,
+    unpushed_commits: unpushedCommits
+  };
+}
+
 function isPublishablePath(filePath) {
   return filePath === "mappings/index.json" || filePath.startsWith("mappings/versions/");
 }
@@ -279,6 +312,7 @@ function gitStatusSummary() {
   return {
     clean: files.length === 0,
     branch: currentBranchName(),
+    ...gitTrackingSummary(),
     files,
     publishable_files: publishableFiles,
     blocked_files: blockedFiles
@@ -332,7 +366,8 @@ function gitPush() {
   const branch = currentBranchName();
   runGit(["push", "origin", branch]);
   return {
-    branch
+    branch,
+    status: gitStatusSummary()
   };
 }
 
