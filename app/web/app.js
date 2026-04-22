@@ -936,12 +936,13 @@ function updatePublishButtons(status) {
   const hasPublishableFiles = publishableFiles.length > 0;
   const hasUnpushedCommits = Number(status.ahead_count || 0) > 0;
   elements.commitButton.disabled = !hasPublishableFiles;
-  elements.pushButton.disabled = !hasPublishableFiles && !hasUnpushedCommits;
-  elements.pushButton.textContent = hasPublishableFiles
-    ? "提交并推送"
+  elements.pushButton.disabled = hasPublishableFiles || !hasUnpushedCommits;
+  elements.pushButton.textContent = "推送";
+  elements.pushButton.title = hasPublishableFiles
+    ? "请先提交当前 metadata 改动，再执行推送"
     : hasUnpushedCommits
-      ? "推送待发布 commit"
-      : "提交并推送";
+      ? "推送本地领先远端的 commit"
+      : "当前没有待推送的 commit";
 }
 
 async function openPublishDialog() {
@@ -972,6 +973,7 @@ async function runCommit() {
   const message = elements.commitMessageInput.value.trim();
   try {
     elements.publishError.classList.add("hidden");
+    elements.commitButton.disabled = true;
     const result = await apiFetch("/api/git/commit", {
       method: "POST",
       body: JSON.stringify({ message })
@@ -1024,6 +1026,12 @@ async function runCommit() {
   } catch (error) {
     elements.publishError.textContent = `提交失败：${error.message}`;
     elements.publishError.classList.remove("hidden");
+    const gitState = await loadGitState().catch(() => null);
+    if (gitState) {
+      elements.publishGitStatus.innerHTML = renderPublishGitStatus(gitState.status);
+      updatePublishButtons(gitState.status);
+      renderDiffBrowser(Array.isArray(gitState.diff.files) ? gitState.diff.files : []);
+    }
     showToast(error.message, "error");
     return false;
   }
@@ -1031,17 +1039,18 @@ async function runCommit() {
 
 async function runPush() {
   try {
-    let gitState = await loadGitState();
+    elements.publishError.classList.add("hidden");
+    elements.pushButton.disabled = true;
+    const gitState = await loadGitState();
     const publishableFiles = Array.isArray(gitState.status.publishable_files) ? gitState.status.publishable_files : [];
     const hasPublishableFiles = publishableFiles.length > 0;
     const hasUnpushedCommits = Number(gitState.status.ahead_count || 0) > 0;
 
     if (hasPublishableFiles) {
-      const committed = await runCommit();
-      if (!committed) return;
-      gitState = await loadGitState();
-    } else if (!hasUnpushedCommits) {
-      throw new Error("当前没有可提交的 metadata 改动，也没有待推送的本地 commit");
+      throw new Error("当前还有未提交的 metadata 改动，请先点击“提交 commit”。");
+    }
+    if (!hasUnpushedCommits) {
+      throw new Error("当前没有待推送的本地 commit");
     }
 
     const result = await apiFetch("/api/git/push", { method: "POST" });
