@@ -3,16 +3,6 @@
   "version": "1.35.0",
   "release_date": "2026-04-16",
   "channels": {
-    "lumo": [
-      {
-        "version": "4.3.0",
-        "zip_url": "https://pkgdl.biligame.net/tool/ONESDK/ONE-SDK-v1.33.0-%E6%B5%B7%E5%A4%96lumo-20260327172316.zip",
-        "md5": "cdbfac868e8473942fba640899f8e78c",
-        "release_date": "2026-04-16",
-        "release_note": [
-          "22"
-        ]
-      }
-    ]
+    "lumo": []
   }
 }
